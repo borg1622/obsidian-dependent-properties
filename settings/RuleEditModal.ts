@@ -35,7 +35,7 @@ export class RuleEditModal extends Modal {
       .setName("Name")
       .addText((text) => {
         text
-          .setPlaceholder("e.g. Venue coordinates")
+          .setPlaceholder("E.g. Venue coordinates")
           .setValue(this.rule.name)
           .onChange((value) => {
             this.rule.name = value;
@@ -48,7 +48,7 @@ export class RuleEditModal extends Modal {
       .addText((text) => {
         new FolderSuggest(this.app, text.inputEl);
         text
-          .setPlaceholder("30 Resources/Events")
+          .setPlaceholder("30 Resources/events")
           .setValue(this.rule.watchedRoot)
           .onChange((value) => {
             this.rule.watchedRoot = value;
@@ -58,12 +58,12 @@ export class RuleEditModal extends Modal {
     this.linkPropertySetting = new Setting(contentEl)
       .setName("Link property")
       .setDesc(
-        "Frontmatter property containing a wikilink or markdown link to the source note."
+        "Frontmatter property containing a wikilink or Markdown link to the source note."
       )
       .addText((text) => {
         new PropertyNameSuggest(this.app, text.inputEl);
         text
-          .setPlaceholder("venue")
+          .setPlaceholder("Venue")
           .setValue(this.rule.linkProperty)
           .onChange((value) => {
             this.rule.linkProperty = value;
@@ -133,7 +133,7 @@ export class RuleEditModal extends Modal {
         .addText((text) => {
           new PropertyNameSuggest(this.app, text.inputEl);
           text
-            .setPlaceholder("coordinates")
+            .setPlaceholder("Coordinates")
             .setValue(value)
             .onChange((newValue) => {
               this.attributeValues[index] = newValue;

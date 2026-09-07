@@ -1,7 +1,6 @@
 import {
   App,
   MarkdownView,
-  MetadataCache,
   Notice,
   Plugin,
   PluginSettingTab,
@@ -10,7 +9,15 @@ import {
   TFile,
   normalizePath
 } from "obsidian";
+import { getBacklinksForFile } from "./settings/obsidianInternals";
 import { RuleEditModal } from "./settings/RuleEditModal";
+import {
+  asFrontmatterRecord,
+  isLegacySyncRule,
+  isMigratableSyncRule,
+  isPartialPluginSettings,
+  migrateRule
+} from "./settings/typeGuards";
 import type { LegacySyncRule, SyncRule } from "./settings/types";
 
 interface PluginSettings {
@@ -212,7 +219,9 @@ export default class DependentPropertiesPlugin extends Plugin {
   }
 
   private isDependentOfSource(dependentFile: TFile, sourceFile: TFile): boolean {
-    const frontmatter = this.app.metadataCache.getFileCache(dependentFile)?.frontmatter;
+    const frontmatter = asFrontmatterRecord(
+      this.app.metadataCache.getFileCache(dependentFile)?.frontmatter
+    );
     if (!frontmatter) return false;
 
     for (const rule of this.settings.rules) {
@@ -268,8 +277,9 @@ export default class DependentPropertiesPlugin extends Plugin {
   async syncFile(file: TFile): Promise<boolean> {
     if (this.syncingFiles.has(file.path)) return false;
 
-    const currentCache = this.app.metadataCache.getFileCache(file);
-    const currentFrontmatter = currentCache?.frontmatter;
+    const currentFrontmatter = asFrontmatterRecord(
+      this.app.metadataCache.getFileCache(file)?.frontmatter
+    );
     if (!currentFrontmatter) return false;
 
     const updates: Record<string, unknown> = {};
@@ -295,7 +305,9 @@ export default class DependentPropertiesPlugin extends Plugin {
         continue;
       }
 
-      const linkedFrontmatter = this.app.metadataCache.getFileCache(linkedFile)?.frontmatter;
+      const linkedFrontmatter = asFrontmatterRecord(
+        this.app.metadataCache.getFileCache(linkedFile)?.frontmatter
+      );
       if (!linkedFrontmatter) continue;
 
       for (const property of rule.attributesToCopy) {
@@ -318,13 +330,17 @@ export default class DependentPropertiesPlugin extends Plugin {
     this.syncingFiles.add(file.path);
 
     try {
-      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+      await this.app.fileManager.processFrontMatter(file, (rawFrontmatter) => {
+        const frontmatter = asFrontmatterRecord(rawFrontmatter);
+        if (!frontmatter) return;
         for (const key of updateKeys) {
           setByPath(frontmatter, key, updates[key]);
         }
       });
 
-      const updatedFm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const updatedFm = asFrontmatterRecord(
+        this.app.metadataCache.getFileCache(file)?.frontmatter
+      );
       this.frontmatterSnapshots.set(
         file.path,
         updatedFm ? cloneValue(updatedFm) : null
@@ -344,9 +360,7 @@ export default class DependentPropertiesPlugin extends Plugin {
   }
 
   private getFrontmatterSnapshot(file: TFile): Record<string, unknown> | null {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    if (!fm || typeof fm !== "object") return null;
-    return fm as Record<string, unknown>;
+    return asFrontmatterRecord(this.app.metadataCache.getFileCache(file)?.frontmatter);
   }
 
   isFileInWatchedRoot(file: TFile, watchedRoot: string): boolean {
@@ -360,21 +374,24 @@ export default class DependentPropertiesPlugin extends Plugin {
 
   private debugLog(message: string) {
     if (this.settings.debug) {
-      console.log(`[Dependent Properties] ${message}`);
+      console.debug(`[Dependent Properties] ${message}`);
     }
   }
 
   async loadSettings() {
-    const loaded = (await this.loadData()) as Partial<PluginSettings> | null;
-    const rawRules = Array.isArray(loaded?.rules) ? loaded.rules : [];
-    const rules = rawRules.map((rule) => migrateRule(rule as LegacySyncRule));
-    const needsMigration = rawRules.some((rule) =>
-      isLegacyRule(rule as LegacySyncRule)
-    );
+    const loaded: unknown = await this.loadData();
+    const partial = isPartialPluginSettings(loaded) ? loaded : {};
+    const rawRules = Array.isArray(partial.rules) ? partial.rules : [];
+    const rules = rawRules
+      .filter((rule): rule is LegacySyncRule => isMigratableSyncRule(rule))
+      .map((rule) => migrateRule(rule));
+    const needsMigration = rawRules.some((rule) => isLegacySyncRule(rule));
 
     this.settings = {
       ...DEFAULT_SETTINGS,
-      ...loaded,
+      debounceMs:
+        typeof partial.debounceMs === "number" ? partial.debounceMs : DEFAULT_SETTINGS.debounceMs,
+      debug: typeof partial.debug === "boolean" ? partial.debug : DEFAULT_SETTINGS.debug,
       rules
     };
 
@@ -511,46 +528,6 @@ function arraymove<T>(arr: T[], from: number, to: number): void {
   arr.splice(to, 0, item);
 }
 
-function isLegacyRule(rule: LegacySyncRule): boolean {
-  return "attributeMappings" in rule || !Array.isArray(rule.attributesToCopy);
-}
-
-function migrateRule(rule: LegacySyncRule): SyncRule {
-  let attributesToCopy = Array.isArray(rule.attributesToCopy)
-    ? rule.attributesToCopy.filter((name) => typeof name === "string" && name.trim())
-    : [];
-
-  if (attributesToCopy.length === 0 && rule.attributeMappings) {
-    attributesToCopy = migrateAttributeMappings(rule.attributeMappings);
-  }
-
-  return {
-    id: rule.id || crypto.randomUUID(),
-    enabled: rule.enabled ?? true,
-    name: rule.name ?? "",
-    watchedRoot: rule.watchedRoot ?? "",
-    linkProperty: rule.linkProperty ?? "",
-    attributesToCopy
-  };
-}
-
-function migrateAttributeMappings(input: string): string[] {
-  return input
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      if (line.includes("->")) {
-        return line.split("->")[0].trim();
-      }
-      if (line.includes(":")) {
-        return line.split(":")[0].trim();
-      }
-      return line;
-    })
-    .filter(Boolean);
-}
-
 function extractLinkTarget(value: unknown): string | null {
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -583,7 +560,7 @@ function hasDefinedValue(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value as object).length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
   return true;
 }
 
@@ -616,7 +593,7 @@ function setByPath(obj: Record<string, unknown>, path: string, value: unknown): 
     current = current[part] as Record<string, unknown>;
   }
 
-  current[parts[parts.length - 1]] = cloneValue(value) as unknown;
+  current[parts[parts.length - 1]] = cloneValue(value);
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -626,16 +603,4 @@ function deepEqual(a: unknown, b: unknown): boolean {
 function cloneValue<T>(value: T): T {
   if (value === undefined || value === null) return value;
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-interface BacklinksResult {
-  data: Record<string, unknown>;
-}
-
-/** Obsidian runtime API; not yet in bundled obsidian type definitions. */
-function getBacklinksForFile(cache: MetadataCache, file: TFile): BacklinksResult {
-  const extended = cache as MetadataCache & {
-    getBacklinksForFile?: (target: TFile) => BacklinksResult;
-  };
-  return extended.getBacklinksForFile?.(file) ?? { data: {} };
 }

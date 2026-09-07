@@ -1,10 +1,8 @@
 import { App } from "obsidian";
+import { getMetadataTypeManager } from "./obsidianInternals";
+import { isTypesJson } from "./typeGuards";
 
 type PropertyTypeName = string;
-
-interface TypesJson {
-  types?: Record<string, PropertyTypeName>;
-}
 
 export async function getVaultPropertyNames(app: App): Promise<string[]> {
   const names = new Set<string>();
@@ -13,9 +11,11 @@ export async function getVaultPropertyNames(app: App): Promise<string[]> {
     const typesPath = `${app.vault.configDir}/types.json`;
     if (await app.vault.adapter.exists(typesPath)) {
       const raw = await app.vault.adapter.read(typesPath);
-      const data = JSON.parse(raw) as TypesJson;
-      for (const key of Object.keys(data.types ?? {})) {
-        names.add(key);
+      const parsed: unknown = JSON.parse(raw);
+      if (isTypesJson(parsed)) {
+        for (const key of Object.keys(parsed.types ?? {})) {
+          names.add(key);
+        }
       }
     }
   } catch (error) {
@@ -23,12 +23,10 @@ export async function getVaultPropertyNames(app: App): Promise<string[]> {
   }
 
   try {
-    // @ts-expect-error unofficial Obsidian API
-    const manager = app.metadataTypeManager as {
-      getAllProperties?: () => Record<string, unknown>;
-    } | undefined;
-    if (manager?.getAllProperties) {
-      for (const key of Object.keys(manager.getAllProperties())) {
+    const manager = getMetadataTypeManager(app);
+    const getAllProperties = manager?.getAllProperties;
+    if (getAllProperties) {
+      for (const key of Object.keys(getAllProperties())) {
         names.add(key);
       }
     }
@@ -51,12 +49,10 @@ export async function registerPropertyType(
   if (known.includes(trimmed)) return;
 
   try {
-    // @ts-expect-error unofficial Obsidian API
-    const manager = app.metadataTypeManager as {
-      setType?: (property: string, propertyType: string) => void;
-    } | undefined;
-    if (manager?.setType) {
-      manager.setType(trimmed, type);
+    const manager = getMetadataTypeManager(app);
+    const setType = manager?.setType;
+    if (setType) {
+      setType(trimmed, type);
       return;
     }
   } catch (error) {
@@ -64,17 +60,19 @@ export async function registerPropertyType(
   }
 
   const typesPath = `${app.vault.configDir}/types.json`;
-  let data: TypesJson = { types: {} };
+  let data: { types: Record<string, string> } = { types: {} };
 
   try {
     if (await app.vault.adapter.exists(typesPath)) {
-      data = JSON.parse(await app.vault.adapter.read(typesPath)) as TypesJson;
+      const parsed: unknown = JSON.parse(await app.vault.adapter.read(typesPath));
+      if (isTypesJson(parsed)) {
+        data = { types: parsed.types ?? {} };
+      }
     }
   } catch {
     data = { types: {} };
   }
 
-  data.types = data.types ?? {};
   if (data.types[trimmed]) return;
 
   data.types[trimmed] = type;
