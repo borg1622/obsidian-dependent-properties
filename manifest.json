@@ -1,0 +1,10 @@
+{
+  "id": "dependent-properties",
+  "name": "Dependent Properties",
+  "version": "0.1.0",
+  "minAppVersion": "1.13.0",
+  "description": "Copy frontmatter from linked source notes into dependent notes. Forward and reverse sync.",
+  "author": "borg1622",
+  "authorUrl": "https://github.com/borg1622",
+  "isDesktopOnly": false
+}
