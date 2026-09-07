@@ -10,6 +10,7 @@ import {
   normalizePath
 } from "obsidian";
 import { getBacklinksForFile } from "./settings/obsidianInternals";
+import { confirmBulkSync } from "./settings/BulkSyncConfirmModal";
 import { RuleEditModal } from "./settings/RuleEditModal";
 import {
   asFrontmatterRecord,
@@ -18,6 +19,7 @@ import {
   isPartialPluginSettings,
   migrateRule
 } from "./settings/typeGuards";
+import { getMarkdownFilesForRule } from "./settings/vaultFiles";
 import type { LegacySyncRule, SyncRule } from "./settings/types";
 
 interface PluginSettings {
@@ -74,7 +76,7 @@ export default class DependentPropertiesPlugin extends Plugin {
       id: "sync-all-files",
       name: "Sync all matching files",
       callback: () => {
-        void this.syncAllMatchingFiles();
+        confirmBulkSync(this.app, () => this.runBulkSync());
       }
     });
   }
@@ -254,15 +256,14 @@ export default class DependentPropertiesPlugin extends Plugin {
     new Notice(changed ? "Properties inherited." : "Nothing to inherit.");
   }
 
-  private async syncAllMatchingFiles() {
+  private async runBulkSync() {
     let changedCount = 0;
     const seen = new Set<string>();
 
     for (const rule of this.settings.rules) {
       if (!rule.enabled) continue;
 
-      for (const file of this.app.vault.getMarkdownFiles()) {
-        if (!this.isFileInWatchedRoot(file, rule.watchedRoot)) continue;
+      for (const file of getMarkdownFilesForRule(this.app.vault, rule.watchedRoot)) {
         if (seen.has(file.path)) continue;
         seen.add(file.path);
 

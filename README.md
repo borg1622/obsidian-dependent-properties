@@ -75,7 +75,7 @@ When you update coordinates on the source note, all linked notes receive the new
 | Command | Description |
 |---------|-------------|
 | **Sync current file** | Sync the active markdown file in the editor (click into the note first). |
-| **Sync all matching files** | Run all enabled rules on every note under the configured root folders. |
+| **Sync all matching files** | Run all enabled rules on every note under the configured root folders. Asks for confirmation before scanning. |
 
 Open the command palette (default shortcut `Ctrl/Cmd + P`) to run these commands.
 
@@ -101,6 +101,14 @@ Open **Settings → Dependent Properties**.
 
 Fresh installs start with no rules configured. Debug logging is off by default.
 
+## Permissions and privacy
+
+- **Automatic sync** reacts to metadata changes on individual notes only. It does not scan your vault on startup or in the background.
+- **Sync all matching files** (command palette) scans markdown files to apply inheritance in bulk. Rules with a root folder only walk that folder tree; rules with an empty root folder scan the entire vault. A confirmation dialog appears before the scan starts.
+- **Folder suggestions** in the rule editor use `getAllFolders()` only while you edit a rule in settings.
+- **Reverse sync** uses backlink metadata and direct file lookups — not a full vault enumeration.
+- The plugin does not access the network or send vault data outside Obsidian.
+
 ## Requirements
 
 - Obsidian 1.13.0 or newer
@@ -117,9 +125,11 @@ Fresh installs start with no rules configured. Debug logging is off by default.
 npm install
 npm run dev    # watch mode
 npm run build  # production build
+npm run lint   # Obsidian community scanner rules
 ```
 
 Build artifacts and dev files follow Obsidian community scanner ignore patterns (`esbuild.config.mjs`, `node_modules/`, `*.test.*`, etc.).
+
 
 ## License
 
